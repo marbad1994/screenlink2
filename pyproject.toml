@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "screenlink"
+version = "1.0.0"
+description = "Dynamic multi-display orchestration with system tray"
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6>=6.4",
+]
+
+[project.scripts]
+screenlink = "screenlink:main"
+
+[tool.setuptools.packages.find]
+include = ["screenlink*"]
+
+[tool.pyinstaller]
+# PyInstaller configuration — one-file binary
+name = "screenlink"
+onefile = true
+console = false
+clean = true
+add_data = []
+hidden_imports = [
+    "PyQt6.QtCore",
+    "PyQt6.QtGui",
+    "PyQt6.QtWidgets",
+]
