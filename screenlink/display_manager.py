@@ -111,6 +111,12 @@ class DisplayManager:
             elif name == "RIGHT":
                 self._start_section("right", w, h, x, y, R, host_ip)
 
+        # After layout switch, windows that were sized for the previous
+        # monitor arrangement can overflow their new monitor — e.g. a
+        # window that was 1920 px wide on LEFT now sits on MIDDLE at
+        # 1366 px.  Without this they hang off the edge or span screens.
+        self.constrain_windows(sections)
+
     def _start_section(self, key, w, h, x, y, client_cfg, host_ip):
         mode = client_cfg.get("mode", "extend")
 
@@ -312,6 +318,119 @@ class DisplayManager:
             except Exception:
                 pass
         self.remote_viewer_procs.clear()
+
+    def constrain_windows(self, sections):
+        """Shrink windows that overflow their new monitor after a layout change.
+
+        Uses wmctrl to list all managed windows and resizes any that are
+        wider or taller than the monitor they're sitting on.
+        """
+        if not shutil.which("wmctrl"):
+            log.warning("wmctrl not found — cannot constrain windows")
+            return
+
+        # Build monitor rects from the sections we just applied
+        monitors = []
+        for name, w, h, x, y, _output, _primary in sections:
+            monitors.append((x, y, x + w, y + h, w, h, name))
+
+        try:
+            result = subprocess.run(
+                ["wmctrl", "-lG"], capture_output=True, text=True, timeout=5
+            )
+        except Exception as e:
+            log.warning("wmctrl -lG failed: %s", e)
+            return
+
+        for line in result.stdout.strip().splitlines():
+            if not line:
+                continue
+            # wmctrl -lG output:
+            # <window_id> <desktop> <x> <y> <w> <h> <host> <title...>
+            parts = line.split(None, 7)
+            if len(parts) < 7:
+                continue
+            try:
+                win_id = parts[0]
+                desktop = int(parts[1])
+                win_x = int(parts[2])
+                win_y = int(parts[3])
+                win_w = int(parts[4])
+                win_h = int(parts[5])
+            except (ValueError, IndexError):
+                continue
+
+            # Save originals so we can compare after off-screen
+            # repositioning (which mutates win_x/win_y to land on a
+            # visible monitor).
+            orig_x, orig_y = win_x, win_y
+            orig_w, orig_h = win_w, win_h
+
+            # Skip desktop windows and sticky windows
+            if desktop == -1:
+                continue
+
+            # Skip panels/docks — they are typically very short/wide by
+            # design and the WM manages them correctly.
+            if orig_h < 60 and orig_w > 300:
+                continue
+
+            # Find which monitor contains the window center
+            cx = orig_x + orig_w // 2
+            cy = orig_y + orig_h // 2
+            home = None
+            for mx1, my1, mx2, my2, mw, mh, mname in monitors:
+                if mx1 <= cx < mx2 and my1 <= cy < my2:
+                    home = (mx1, my1, mx2, my2, mw, mh, mname)
+                    break
+
+            if home is None:
+                # Center isn't inside any monitor — find the nearest
+                # by overlap.
+                for mx1, my1, mx2, my2, mw, mh, mname in monitors:
+                    if (orig_x < mx2 and orig_x + orig_w > mx1 and
+                            orig_y < my2 and orig_y + orig_h > my1):
+                        home = (mx1, my1, mx2, my2, mw, mh, mname)
+                        break
+                if home is None:
+                    # Completely detached (e.g. was on a monitor that
+                    # just disappeared).  Move to the primary monitor.
+                    primary = next(
+                        ((mx1, my1, mx2, my2, mw, mh, mn)
+                         for mx1, my1, mx2, my2, mw, mh, mn in monitors
+                         if mn == "MIDDLE"),
+                        monitors[0] if monitors else None,
+                    )
+                    if primary is None:
+                        continue
+                    mx1, my1, mx2, my2, mw, mh, mname = primary
+                    # Place at top-left of primary, then clamp below.
+                    win_x, win_y = mx1, my1
+                    home = primary
+
+            mx1, my1, mx2, my2, mw, mh, mname = home
+
+            # Clamp size to monitor dimensions.
+            new_w = min(orig_w, mw)
+            new_h = min(orig_h, mh)
+
+            # Clamp position so the resized window stays within monitor
+            # bounds.  Gravity 0 = NW corner reference (wmctrl default).
+            new_x = max(mx1, min(win_x, mx2 - new_w))
+            new_y = max(my1, min(win_y, my2 - new_h))
+
+            # Only call wmctrl if something actually changed vs originals.
+            if (new_w == orig_w and new_h == orig_h and
+                    new_x == orig_x and new_y == orig_y):
+                continue
+
+            log.info("Constraining window %s (%dx%d) → (%dx%d) on %s",
+                     win_id, win_w, win_h, new_w, new_h, mname)
+            subprocess.run(
+                ["wmctrl", "-i", "-r", win_id, "-e",
+                 f"0,{new_x},{new_y},{new_w},{new_h}"],
+                capture_output=True, timeout=3,
+            )
 
     def teardown(self):
         # Run stop_commands for all clients before killing local procs
