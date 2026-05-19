@@ -83,9 +83,10 @@ class DisplayManager:
             geom = f"{w}/300x{h}/200+{x}+{y}"
             run(["xrandr", "--setmonitor", mon_name, geom, output])
 
-        # VNC servers + client start commands
+        # VNC servers + client start commands + remote viewers
         self.stop_vnc_servers()
         self.stop_start_commands()
+        self.stop_remote_viewers()
         host_ip = self.cfg.get("host_ip", "")
         for name, w, h, x, y, output, primary in sections:
             if name == "LEFT":
@@ -109,7 +110,7 @@ class DisplayManager:
 
         # 1. Start x0vncserver — capture output so we can see what failed
         port = client_cfg["vnc_port"]
-        subprocess.run(["pkill", "-f", f"x0vncserver.*-rfbport {port}"],
+        subprocess.run(["pkill", "-9", "-f", f"x0vncserver.*-rfbport {port}"],
                        capture_output=True)
         cmd = [
             "x0vncserver",
@@ -161,11 +162,28 @@ class DisplayManager:
         # 0. Run stop_command first (clean up previous remote session)
         self._run_stop_command(key, client_cfg, host_ip)
 
+        # Kill any existing viewer for this key (defense-in-depth; normally
+        # stop_remote_viewers should have handled this already)
+        if key in self.remote_viewer_procs:
+            try:
+                proc = self.remote_viewer_procs[key]
+                proc.kill()
+                proc.wait(timeout=1)
+            except Exception:
+                pass
+            del self.remote_viewer_procs[key]
+        # Also pkill any stray vncviewer connecting to same target
+        target = f"{ip}::{port}" if port != 5900 else ip
+        subprocess.run(["pkill", "-9", "-f", f"vncviewer.*{target}"],
+                       capture_output=True)
+        # Brief sleep so the OS has time to reap the killed processes
+        import time
+        time.sleep(0.3)
+
         if not shutil.which("vncviewer"):
             log.error("Remote mode for %s: vncviewer not found!", key)
             return
 
-        target = f"{ip}::{port}" if port != 5900 else ip
         # TigerVNC vncviewer accepts -geometry WxH+X+Y for size + position
         geom = f"{w}x{h}+{x}+{y}"
         cmd = ["vncviewer", "-geometry", geom, "--FullScreen=0", target]
@@ -261,6 +279,19 @@ class DisplayManager:
         for proc in self.remote_viewer_procs.values():
             try:
                 proc.terminate()
+            except Exception:
+                pass
+        # Wait for them to actually die, force-kill if needed
+        import time
+        for proc in self.remote_viewer_procs.values():
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=1)
+                except Exception:
+                    pass
             except Exception:
                 pass
         self.remote_viewer_procs.clear()
