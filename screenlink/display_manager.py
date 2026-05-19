@@ -36,49 +36,66 @@ class DisplayManager:
         R = self.cfg["right"]
         M = self.cfg["middle"]
 
-        # All multi-screen layouts use DP-0 at 5120x2880 for simplicity.
-        # Section positions vary; HDMI position vs DP-0 origin varies.
+        # HDMI-0 (the physical MIDDLE panel) is ALWAYS pinned at +L_width+0.
+        # DP-0 lives at +0+0 when active and provides virtual space for
+        # LEFT (at +0 on DP-0) and RIGHT (at +L_width+M_width on DP-0).
+        # This keeps the MIDDLE panel absolutely stable across every layout.
+        L_width = L["width"]
+        M_width = M["width"]
+        middle_x = L_width  # HDMI-0 and MIDDLE never move
+
         if layout == "triple":
             metamode = (
-                f"HDMI-0: {M['width']}x{M['height']} +{L['width']}+0, "
+                f"HDMI-0: {M['width']}x{M['height']} +{L_width}+0, "
                 f"DP-0: 5120x2880 +0+0"
             )
             sections = [
-                ("LEFT",   L["width"], L["height"], 0,                       0, "none",   False),
-                ("MIDDLE", M["width"], M["height"], L["width"],              0, "HDMI-0", True),
-                ("RIGHT",  R["width"], R["height"], L["width"] + M["width"], 0, "none",   False),
+                ("LEFT",   L["width"], L["height"], 0,                    0, "none",   False),
+                ("MIDDLE", M["width"], M["height"], middle_x,             0, "HDMI-0", True),
+                ("RIGHT",  R["width"], R["height"], L_width + M_width,    0, "none",   False),
             ]
         elif layout == "left_only":
             metamode = (
-                f"HDMI-0: {M['width']}x{M['height']} +{L['width']}+0, "
+                f"HDMI-0: {M['width']}x{M['height']} +{L_width}+0, "
                 f"DP-0: 5120x2880 +0+0"
             )
             sections = [
-                ("LEFT",   L["width"], L["height"], 0,          0, "none",   False),
-                ("MIDDLE", M["width"], M["height"], L["width"], 0, "HDMI-0", True),
+                ("LEFT",   L["width"], L["height"], 0,         0, "none",   False),
+                ("MIDDLE", M["width"], M["height"], middle_x,  0, "HDMI-0", True),
             ]
         elif layout == "right_only":
-            # DP-0 placed right of HDMI so RIGHT lives at +middle_width
+            # HDMI-0 stays at +L_width+0; gap where LEFT would be is harmless
             metamode = (
-                f"HDMI-0: {M['width']}x{M['height']} +0+0, "
-                f"DP-0: 5120x2880 +{M['width']}+0"
+                f"HDMI-0: {M['width']}x{M['height']} +{L_width}+0, "
+                f"DP-0: 5120x2880 +0+0"
             )
             sections = [
-                ("MIDDLE", M["width"], M["height"], 0,          0, "HDMI-0", True),
-                ("RIGHT",  R["width"], R["height"], M["width"], 0, "none",   False),
+                ("MIDDLE", M["width"], M["height"], middle_x,          0, "HDMI-0", True),
+                ("RIGHT",  R["width"], R["height"], L_width + M_width, 0, "none",   False),
             ]
-        else:  # single
-            metamode = f"HDMI-0: {M['width']}x{M['height']} +0+0"
+        else:  # single — still keep HDMI-0 at +L_width+0 so MIDDLE never shifts
+            metamode = f"HDMI-0: {M['width']}x{M['height']} +{L_width}+0"
             sections = [
-                ("MIDDLE", M["width"], M["height"], 0, 0, "HDMI-0", True),
+                ("MIDDLE", M["width"], M["height"], middle_x, 0, "HDMI-0", True),
             ]
 
         run(["nvidia-settings", "--assign", f"CurrentMetaMode={metamode}"])
 
-        # Reset our logical monitors
-        for name in ("LEFT", "MIDDLE", "RIGHT"):
+        # Only delete/recreate LEFT and RIGHT monitors — MIDDLE never changes
+        # so we leave it untouched, avoiding flicker/disappearance.
+        for name in ("LEFT", "RIGHT"):
             run(["xrandr", "--delmonitor", name])
         for name, w, h, x, y, output, primary in sections:
+            if name == "MIDDLE":
+                # Create once if missing; otherwise left intact (no delmonitor).
+                # Check if it already exists before creating.
+                result = subprocess.run(
+                    ["xrandr", "--listmonitors"], capture_output=True, text=True
+                )
+                if "MIDDLE" not in result.stdout:
+                    run(["xrandr", "--setmonitor", "*MIDDLE",
+                         f"{w}/300x{h}/200+{x}+{y}", output])
+                continue
             mon_name = f"*{name}" if primary else name
             geom = f"{w}/300x{h}/200+{x}+{y}"
             run(["xrandr", "--setmonitor", mon_name, geom, output])

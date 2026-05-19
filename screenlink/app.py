@@ -145,7 +145,9 @@ class ScreenLinkApp:
                  layout, left_alive, right_alive)
         try:
             self.display.apply_layout(layout)
-            # Refresh window manager after xrandr changes (xfce4)
+            # xfwm4 needs --replace to pick up new monitor boundaries
+            # (otherwise fullscreen spans all screens).  The layout is
+            # now stable (MIDDLE never moves) so the flicker is minimal.
             if shutil.which("xfwm4"):
                 subprocess.Popen(
                     ["xfwm4", "--replace"],
