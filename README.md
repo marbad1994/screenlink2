@@ -1,10 +1,42 @@
 # ScreenLink
 
-Dynamic multi-display orchestration with system tray integration.
+## The Problem Nobody Solved Properly
 
-Automatically detects online clients (via ping), configures the display
-layout across 1–3 screens, and manages VNC remote sessions — all from a
-small tray icon.
+I run three operating systems — not because I enjoy suffering, but because I need all three. A Linux desktop as my main machine, a Windows laptop, and a MacBook. Each has a role. None of them are going anywhere.
+
+The laptops are both well over ten years old. They sit there with perfectly good screens that are dark most of the day. Meanwhile I'm squinting at one monitor wishing I had more space. I searched for years for a setup that actually worked. Nothing did — not cleanly, not cheaply, not without proprietary hardware or a monthly subscription.
+
+So I built one.
+
+## NVIDIA Said No
+
+The first wall was NVIDIA. They don't support creating virtual displays — no official path, no workaround in the docs. Most people stop there.
+
+I didn't.
+
+Seven days later I had something working. What I learned is that NVIDIA isn't actually the blocker people think it is. You just have to be stubborn enough to find the path they didn't document.
+
+## What ScreenLink Does
+
+ScreenLink turns those unused laptop screens into real extended monitors over LAN using VNC. No new hardware. No paid software. No cloud.
+
+From a tray icon in my toolbar I can set each laptop independently — extend the screen, or switch to remote control. That's it. One decision per machine, instantly.
+
+In practice this means I run one keyboard and one mouse across all three computers. I can have my Linux desktop with two extended screens and one machine remote controlled. Or all three screens extended. Or any combination. My main monitor stays in the center where it belongs and everything else falls into place around it.
+
+## Honest About the Hard Parts
+
+Getting around NVIDIA's limitations while keeping the main monitor centered and everything stable — that was genuinely hard. Frustrating in the way that only good problems are frustrating. The kind where you're cursing at 2am and then something clicks and you feel like you invented electricity.
+
+I use it every single day.
+
+## Why Not Just Buy a Screen?
+
+Part of what drives me is making IT accessible to people who don't have the budget to throw hardware at every problem. Not everyone can just go buy a monitor. But a lot of people have an old laptop collecting dust — and that laptop is an asset waiting to be used.
+
+ScreenLink turns nothing into something. That's the whole point.
+
+**[Read the story here](https://marbad1994.github.io/)**
 
 ## Features
 
